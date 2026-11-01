@@ -1,0 +1,1 @@
+Fixed :func:`pytest.approx` giving wrong results and failure details when comparing numpy integer scalars or arrays (e.g. ``uint8``) against Python numbers, lists or dicts, due to overflow in fixed-width integer arithmetic.

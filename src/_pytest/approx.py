@@ -332,7 +332,7 @@ class ApproxMapping(Approx[Mapping[Any, Any]]):
         rel_diff_is_infinite = False
         different_ids = []
         for approx_key, approx_value in approx_side_as_map.items():
-            other_value = other_side[approx_key]
+            other_value = _unbox_numpy_scalar(other_side[approx_key])
             if approx_value != other_value:
                 if approx_value.expected is not None and other_value is not None:
                     try:
@@ -431,6 +431,8 @@ class ApproxSequenceLike(Approx[Sequence[Any]]):
         for i, (approx_value, other_value) in enumerate(
             zip(approx_side_as_map, other_side, strict=True)
         ):
+            # Avoid overflow in fixed-width numpy integer arithmetic.
+            other_value = _unbox_numpy_scalar(other_value)
             if approx_value != other_value:
                 try:
                     abs_diff = abs(approx_value.expected - other_value)
@@ -566,6 +568,9 @@ class ApproxScalar(Approx[ExpectedT]):
             # Call ``__eq__()`` manually to prevent infinite-recursion with
             # numpy<1.13.  See #3748.
             return all(self.__eq__(a) for a in asarray.flat)
+
+        # Avoid wrap-around in fixed-width numpy integer arithmetic below.
+        actual = _unbox_numpy_scalar(actual)
 
         # Short-circuit exact equality, except for bool and np.bool_
         if _is_bool(self.expected) and not _is_bool(actual):

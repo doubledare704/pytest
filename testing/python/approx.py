@@ -201,6 +201,46 @@ class TestApprox:
             ],
         )
 
+    @pytest.mark.parametrize(
+        "expected",
+        [
+            pytest.param(lambda: [0], id="list"),
+            pytest.param(lambda: (0,), id="tuple"),
+            pytest.param(lambda: {"a": 0}, id="dict"),
+        ],
+    )
+    def test_numpy_integer_actual_failure_details(self, expected) -> None:
+        """Python-container expected vs numpy integer actual must not overflow."""
+        np = pytest.importorskip("numpy")
+        actual = np.uint8(255)
+        comparison = approx(expected())
+        other = (
+            {"a": actual}
+            if isinstance(comparison.expected, dict)
+            else np.array([actual])
+        )
+        with np.errstate(all="raise"):
+            assert other != comparison
+            explanation = comparison._repr_compare(other)
+        assert "Max absolute difference: 255" in explanation
+        if not isinstance(comparison.expected, dict):
+            # ApproxMapping divides by the expected value (here 0) instead.
+            assert "Max relative difference: 1.0" in explanation
+
+    @pytest.mark.parametrize("expected", [[254], (254,), {"a": 254}, 254])
+    def test_numpy_integer_actual_equality(self, expected) -> None:
+        """Equality must not wrap around in fixed-width numpy integer arithmetic."""
+        np = pytest.importorskip("numpy")
+        actual = np.uint8(255)
+        if isinstance(expected, dict):
+            other = {"a": actual}
+        elif isinstance(expected, list | tuple):
+            other = np.array([actual])
+        else:
+            other = actual
+        with np.errstate(all="raise"):
+            assert other == approx(expected, abs=2)
+
     def test_error_messages_numpy_dtypes(self, assert_approx_raises_regex):
         np = pytest.importorskip("numpy")
 
