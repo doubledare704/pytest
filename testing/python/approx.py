@@ -204,16 +204,22 @@ class TestApprox:
     @pytest.mark.parametrize(
         "expected",
         [
-            pytest.param(lambda: [0], id="list"),
-            pytest.param(lambda: (0,), id="tuple"),
-            pytest.param(lambda: {"a": 0}, id="dict"),
+            pytest.param(lambda x: [x], id="list"),
+            pytest.param(lambda x: (x,), id="tuple"),
+            pytest.param(lambda x: {"a": x}, id="dict"),
         ],
     )
-    def test_numpy_integer_actual_failure_details(self, expected) -> None:
+    @pytest.mark.parametrize(
+        "dtype, actual_value, expected_value, relative_difference",
+        [("uint8", 255, 0, "1.0"), ("int8", -128, 127, "1.9921875")],
+    )
+    def test_numpy_integer_actual_failure_details(
+        self, expected, dtype, actual_value, expected_value, relative_difference
+    ) -> None:
         """Python-container expected vs numpy integer actual must not overflow."""
         np = pytest.importorskip("numpy")
-        actual = np.uint8(255)
-        comparison = approx(expected())
+        actual = getattr(np, dtype)(actual_value)
+        comparison = approx(expected(expected_value))
         other = (
             {"a": actual}
             if isinstance(comparison.expected, dict)
@@ -224,8 +230,8 @@ class TestApprox:
             explanation = comparison._repr_compare(other)
         assert "Max absolute difference: 255" in explanation
         if not isinstance(comparison.expected, dict):
-            # ApproxMapping divides by the expected value (here 0) instead.
-            assert "Max relative difference: 1.0" in explanation
+            # ApproxMapping divides by the expected value instead.
+            assert f"Max relative difference: {relative_difference}" in explanation
 
     @pytest.mark.parametrize("expected", [[254], (254,), {"a": 254}, 254])
     def test_numpy_integer_actual_equality(self, expected) -> None:
@@ -240,6 +246,112 @@ class TestApprox:
             other = actual
         with np.errstate(all="raise"):
             assert other == approx(expected, abs=2)
+
+    @pytest.mark.parametrize(
+        "container",
+        [
+            pytest.param(lambda x: x, id="scalar"),
+            pytest.param(lambda x: [x], id="list"),
+            pytest.param(lambda x: (x,), id="tuple"),
+            pytest.param(lambda x: {"a": x}, id="dict"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "dtype, expected_value, actual_value",
+        [("uint8", 0, 256), ("int8", 127, -129), ("int8", -128, 127)],
+    )
+    def test_numpy_mixed_integer_types(
+        self, container, dtype, expected_value, actual_value
+    ) -> None:
+        np = pytest.importorskip("numpy")
+        expected = container(getattr(np, dtype)(expected_value))
+        actual = container(np.int64(actual_value))
+        comparison = approx(expected, abs=0)
+        with np.errstate(all="raise"):
+            assert actual != comparison
+            assert comparison != actual
+            if not isinstance(expected, np.integer):
+                difference = abs(expected_value - actual_value)
+                assert (
+                    f"Max absolute difference: {difference}"
+                    in comparison._repr_compare(actual)
+                )
+
+    def test_numpy_float_precision_is_preserved(self) -> None:
+        np = pytest.importorskip("numpy")
+        with np.errstate(all="raise"):
+            assert np.float64(1.00000001) != approx(np.float32(1), abs=0)
+            assert approx(np.float32(1), abs=0) != np.float64(1.00000001)
+
+    @pytest.mark.parametrize(
+        "container",
+        [
+            pytest.param(lambda x: x, id="scalar"),
+            pytest.param(lambda x: [x], id="list"),
+            pytest.param(lambda x: (x,), id="tuple"),
+            pytest.param(lambda x: {"a": x}, id="dict"),
+        ],
+    )
+    @pytest.mark.parametrize("dtype", ["float32", "complex64"])
+    @pytest.mark.parametrize("reverse", [False, True])
+    def test_numpy_integer_float_promotion(self, container, dtype, reverse) -> None:
+        np = pytest.importorskip("numpy")
+        expected = container(getattr(np, dtype)(2**24))
+        actual = container(np.int64(2**24 + 1))
+        if reverse:
+            expected, actual = actual, expected
+        comparison = approx(expected, abs=0)
+        with np.errstate(all="raise"):
+            assert actual != comparison
+            assert comparison != actual
+            if isinstance(expected, list | tuple | dict):
+                assert "Max absolute difference: 1.0" in comparison._repr_compare(
+                    actual
+                )
+
+    @pytest.mark.parametrize(
+        "dtype, actual, expected, relative_difference",
+        [("uint8", 255, 0, "1.0"), ("int8", -128, 127, "1.9921875")],
+    )
+    def test_numpy_integer_assertion_report(
+        self, pytester: Pytester, dtype, actual, expected, relative_difference
+    ) -> None:
+        pytest.importorskip("numpy")
+        pytester.makepyfile(
+            f"""
+            import numpy as np
+            import pytest
+
+            def test_comparison():
+                actual = np.array([{actual}], dtype=np.{dtype})
+                assert actual == pytest.approx([{expected}])
+            """
+        )
+        result = pytester.runpytest("-Werror")
+        result.assert_outcomes(failed=1)
+        result.stdout.fnmatch_lines(
+            [
+                "*Max absolute difference: 255*",
+                f"*Max relative difference: {relative_difference}*",
+            ]
+        )
+        assert "representation of details failed" not in result.stdout.str()
+        assert "RuntimeWarning" not in result.stdout.str()
+
+    @pytest.mark.parametrize("item_value", [42, lambda self: 0])
+    def test_non_numpy_item_attribute(self, item_value) -> None:
+        class Value:
+            item = item_value
+
+            def __eq__(self, other):
+                if isinstance(other, Value):
+                    return True
+                return NotImplemented
+
+        value = Value()
+        assert approx(value) == value
+        assert [value] == approx([value])
+        assert {"a": value} == approx({"a": value})
 
     def test_error_messages_numpy_dtypes(self, assert_approx_raises_regex):
         np = pytest.importorskip("numpy")

@@ -332,7 +332,7 @@ class ApproxMapping(Approx[Mapping[Any, Any]]):
         rel_diff_is_infinite = False
         different_ids = []
         for approx_key, approx_value in approx_side_as_map.items():
-            other_value = _unbox_numpy_scalar(other_side[approx_key])
+            other_value = _unbox_numpy_number(other_side[approx_key])
             if approx_value != other_value:
                 if approx_value.expected is not None and other_value is not None:
                     try:
@@ -432,7 +432,7 @@ class ApproxSequenceLike(Approx[Sequence[Any]]):
             zip(approx_side_as_map, other_side, strict=True)
         ):
             # Avoid overflow in fixed-width numpy integer arithmetic.
-            other_value = _unbox_numpy_scalar(other_value)
+            other_value = _unbox_numpy_number(other_value)
             if approx_value != other_value:
                 try:
                     abs_diff = abs(approx_value.expected - other_value)
@@ -500,6 +500,7 @@ class ApproxScalar(Approx[ExpectedT]):
         nan_ok: bool,
     ) -> None:
         __tracebackhide__ = True
+        expected = _unbox_numpy_number(expected)
         if rel is not None:
             if not isinstance(rel, (int, float, Decimal)):
                 raise TypeError(
@@ -570,7 +571,7 @@ class ApproxScalar(Approx[ExpectedT]):
             return all(self.__eq__(a) for a in asarray.flat)
 
         # Avoid wrap-around in fixed-width numpy integer arithmetic below.
-        actual = _unbox_numpy_scalar(actual)
+        actual = _unbox_numpy_number(actual)
 
         # Short-circuit exact equality, except for bool and np.bool_
         if _is_bool(self.expected) and not _is_bool(actual):
@@ -1115,6 +1116,21 @@ def _as_numpy_array(obj: object) -> ndarray | None:
         elif hasattr(obj, "__array__") or hasattr(obj, "__array_interface__"):
             return np.asarray(obj)
     return None
+
+
+def _unbox_numpy_number(value: Any) -> Any:
+    """Convert NumPy numeric scalars to their Python equivalents.
+
+    Normalize both comparison operands to avoid integer overflow and rounding
+    caused by mixing Python numbers with lower precision NumPy scalars.
+    Extended precision scalars retain their NumPy type when item() cannot
+    represent them as a Python number.
+    """
+    np = sys.modules.get("numpy")
+    # NumPy also classifies timedelta64 as a number; leave durations unchanged.
+    if np is not None and isinstance(value, np.number) and value.dtype.kind in "iufc":
+        return value.item()
+    return value
 
 
 def _unbox_numpy_scalar(value: Any) -> Any:
