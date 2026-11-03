@@ -340,14 +340,17 @@ def test_legacy_httperror_missing_notes() -> None:
             return super().__getattr__(name)
 
     error = LegacyHTTPError("https://example.test", 404, "not found", Message(), None)
-    assert not hasattr(error, "missing_field")
-    with pytest.raises(HTTPError) as excinfo:
-        raise error
-    if sys.version_info < (3, 12):
-        assert excinfo.record().notes == ()
-    else:
-        with pytest.raises(KeyError, match="__notes__"):
-            excinfo.record()
+    try:
+        assert not hasattr(error, "missing_field")
+        with pytest.raises(HTTPError) as excinfo:
+            raise error
+        if sys.version_info < (3, 12):
+            assert excinfo.record().notes == ()
+        else:
+            with pytest.raises(KeyError, match="__notes__"):
+                excinfo.record()
+    finally:
+        error.close()
 
 
 def test_unknown_exception_module(monkeypatch: pytest.MonkeyPatch) -> None:

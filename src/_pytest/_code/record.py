@@ -144,7 +144,8 @@ class FailureRecord(Protocol):
 
     def __rich_console__(
         self, console: Console, options: ConsoleOptions
-    ) -> RenderResult: ...
+    ) -> RenderResult:
+        raise NotImplementedError
 
 
 @dataclasses.dataclass(frozen=True)
